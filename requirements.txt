@@ -5,7 +5,3 @@ pandas
 pyttsx3
 SpeechRecognition
 deep-translator
-pypiwin32
-
-
-
