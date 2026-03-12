@@ -313,7 +313,7 @@ st.sidebar.title("⚙️ AI Settings")
 
 mode = st.sidebar.radio(
     "Select AI Mode",
-    ["FAST", "SMART", "THINK HARD","CODER"]
+    ["FAST", "THINK HARD","CODER"]
 )
 
 # ---------------- AI SETTINGS ----------------
@@ -327,14 +327,8 @@ with st.sidebar.expander("⚙️ Model Settings", expanded=True):
             "max_tokens": 300,
             "system_prompt": "Give short and direct answers."
         },
-        "SMART": {
-            "model": "qwen/qwen3-32b",
-            "temperature": 0.4,
-            "max_tokens": 900,
-            "system_prompt": "Provide clear and helpful explanations."
-        },
         "THINK HARD": {
-            "model": "deepseek-r1-distill-llama-70b",
+            "model": "qwen/qwen3-32b",
             "temperature": 0.2,
             "max_tokens": 1500,
             "system_prompt": "Think step by step and solve complex problems."
@@ -356,7 +350,7 @@ with st.sidebar.expander("⚙️ Model Settings", expanded=True):
             "llama-3.1-8b-instant",
             "llama-3.3-70b-versatile",
             "qwen/qwen3-32b",
-            "deepseek-r1-distill-llama-70b"
+            
         ],
         index=0 if config["model"] == "llama-3.1-8b-instant"
         else 1 if config["model"] == "llama-3.3-70b-versatile"
@@ -685,3 +679,4 @@ if st.session_state.last_prompt and st.session_state.last_response:
 
             st.session_state.regen = True
             st.rerun()
+
