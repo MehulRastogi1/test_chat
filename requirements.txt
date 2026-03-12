@@ -1,9 +1,10 @@
-streamlit>=1.25.0
-groq>=0.3.2
-ddgs>=1.5.0
-pandas>=2.0.0
-pyttsx3==2.90
-SpeechRecognition==3.8.1
-deep-translator==1.11.1
+streamlit
+groq
+ddgs
+pandas
+pyttsx3
+SpeechRecognition
+deep-translator
+
 
 
