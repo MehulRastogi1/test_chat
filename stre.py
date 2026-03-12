@@ -3,12 +3,14 @@ import random
 import streamlit as st
 from groq import Groq
 from ddgs import DDGS
-import time
 import pandas as pd
-import pyttsx3
 import speech_recognition as sr
 from deep_translator import GoogleTranslator
-
+import edge_tts
+import asyncio
+import base64        
+from streamlit_mic_recorder import mic_recorder
+import tempfile
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
@@ -19,36 +21,44 @@ st.set_page_config(
 
 #==================== FUNCTION ==========================
 # ------------------- VOICE INPUT FUNCTION -------------------
-def voice_input_to_prompt(timeout=10):
-    """
-    Listens to microphone, converts speech to text,
-    translates to English if needed, and sets it as last_prompt.
-    """
-    r = sr.Recognizer()
+def voice_input_to_prompt(audio):
+
+    temp_path = None
+
     try:
-        with sr.Microphone() as source:
-            st.info("🎧 Listening... Please speak now.")
-            r.adjust_for_ambient_noise(source, duration=0.5)
-            audio = r.listen(source, phrase_time_limit=timeout)
+        raw = audio.get("bytes")
 
-        # Recognize speech
-        text = r.recognize_google(audio)
-        # st.success(f"📝 You said: {text}")
+        # agar bytes base64 me aaye
+        if isinstance(raw, str):
+            raw = base64.b64decode(raw)
 
-        # Translate to English
-        translated_text = GoogleTranslator(source='auto', target='en').translate(text)
-        # st.info(f"🌐 Translated to English: {translated_text}")
+        # temp file create
+        tf = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
+        temp_path = tf.name
+        tf.write(raw)
+        tf.close()
 
-        # Set for AI prompt
-        st.session_state.voice_prompt = translated_text
-        return translated_text
+        # Groq Whisper STT
+        transcription = client.audio.transcriptions.create(
+            file=(temp_path, open(temp_path, "rb").read()),
+            model="whisper-large-v3",
+            response_format="json",
+            language="hi"
+        )
 
-    except sr.UnknownValueError:
-        st.error("⚠️ Could not understand audio.")
-        return None
-    except sr.RequestError as e:
-        st.error(f"⚠️ Speech Recognition service error: {e}")
-        return None
+        text = transcription.text
+
+        translated = GoogleTranslator(
+            source="auto",
+            target="en"
+        ).translate(text)
+
+        st.success(f"🗣 You said: {text}")
+        st.info(f"🌍 English: {translated}")
+
+        st.session_state.voice_prompt = translated
+        return translated
+
     except Exception as e:
         st.error(f"⚠️ Error: {e}")
         return None
@@ -82,12 +92,15 @@ if "messages" not in st.session_state:
 
 if "last_prompt" not in st.session_state:
     st.session_state.last_prompt = None
+    
 
 if "regen" not in st.session_state:
     st.session_state.regen = False
 
 if "voice_prompt" not in st.session_state:
     st.session_state.voice_prompt = None
+    st.session_state.last_response=None
+
 if "voice" not in st.session_state:
     st.session_state.voice = False
 
@@ -230,14 +243,17 @@ st.markdown(
         background-color: #16a34a;
     }
 
-    /* File uploader area: modern subtle style */
-.stFileUploader, .stFileUploader div {
-    border-radius: 12px; /* slightly more rounded */
-    border: 1px dashed rgba(11,121,208,0.2); /* slightly more visible */
-    padding: 12px 16px; /* more comfortable padding */
-    background: linear-gradient(180deg, #f9fbff 0%, #ffffff 100%); /* soft gradient */
-    transition: all 0.3s ease; /* smooth hover effect */
-    cursor: pointer; /* indicate clickable area */
+    /* Fix file uploader text display */
+.stFileUploader [data-testid="stFileUploadLabel"] {
+    position: relative;   /* remove overlay issues */
+    z-index: 2;
+    color: #0b2b45;      /* visible text color */
+    font-weight: 500;
+}
+
+/* Optional: make container slightly taller so name fits */
+.stFileUploader > div {
+    min-height: 50px;    /* ensure text fits */
 }
 
     /* Sidebar separators */
@@ -300,6 +316,63 @@ mode = st.sidebar.radio(
     ["FAST", "SMART", "THINK HARD","CODER"]
 )
 
+# ---------------- AI SETTINGS ----------------
+with st.sidebar.expander("⚙️ Model Settings", expanded=True):
+       
+    # -------- MODE CONFIG --------
+    mode_configs = {
+        "FAST": {
+            "model": "llama-3.1-8b-instant",
+            "temperature": 0.3,
+            "max_tokens": 300,
+            "system_prompt": "Give short and direct answers."
+        },
+        "SMART": {
+            "model": "qwen/qwen3-32b",
+            "temperature": 0.4,
+            "max_tokens": 900,
+            "system_prompt": "Provide clear and helpful explanations."
+        },
+        "THINK HARD": {
+            "model": "deepseek-r1-distill-llama-70b",
+            "temperature": 0.2,
+            "max_tokens": 1500,
+            "system_prompt": "Think step by step and solve complex problems."
+        },
+        "CODER": {
+            "model": "llama-3.3-70b-versatile",
+            "temperature": 0.2,
+            "max_tokens": 1200,
+            "system_prompt": "You are an expert programmer. Write clean, correct and optimized code."
+        }
+    }
+
+    config = mode_configs[mode]
+    
+    # -------- MODEL SELECT --------
+    model = st.selectbox(
+        "Model",
+        [
+            "llama-3.1-8b-instant",
+            "llama-3.3-70b-versatile",
+            "qwen/qwen3-32b",
+            "deepseek-r1-distill-llama-70b"
+        ],
+        index=0 if config["model"] == "llama-3.1-8b-instant"
+        else 1 if config["model"] == "llama-3.3-70b-versatile"
+        else 2 if config["model"] == "qwen/qwen3-32b"
+        else 3
+    )
+
+    # -------- MAX TOKENS SLIDER --------
+    max_tokens = st.slider(
+        "Max Tokens",
+        100,
+        4096,
+        config["max_tokens"]
+    )
+
+temperature = config["temperature"]
 web_mode = st.sidebar.toggle("🌐 Internet Access")
 
 # -------- FILE UPLOAD --------
@@ -330,76 +403,41 @@ if uploaded_file:
 # ---------------- VOICE SETTINGS ----------------
 if "voice_settings" not in st.session_state:
     st.session_state.voice_settings = {
-        "rate": 150,
+        "rate": "Normal",      # default
         "volume": 1.0,
-        "voice": None  # default system voice
+        "voice": None
     }
-    st.session_state.last_response=None
+    st.session_state.last_response = None
 
 with st.sidebar.expander("🔊 Voice Settings"):
-    st.session_state.voice_settings["rate"] = st.slider("Speech Rate", 80, 300, st.session_state.voice_settings["rate"])
-    st.session_state.voice_settings["volume"] = st.slider("Volume", 0.0, 1.0, st.session_state.voice_settings["volume"], 0.05)
-    voice_choice = st.selectbox("Voice", ["Default", "Male", "Female"])
+   # Fixed rate options instead of slider
+    rate_choice = st.selectbox(
+        "Speech Rate",
+        [ "Normal","High", "Slow"]
+    )
+    st.session_state.voice_settings["rate"] = rate_choice
+    voice_choice = st.selectbox(
+        "Voice",
+        [
+            "Default",
+            "English Male",
+            "English Female",
+            
+            "Hindi Female"
+        ]
+    )
     st.session_state.voice_settings["voice"] = voice_choice
-# -------- MODE CONFIG --------
-mode_configs = {
 
-    "FAST": {
-        "model": "llama-3.1-8b-instant",
-        "temperature": 0.3,
-        "max_tokens": 300,
-        "system_prompt": "Give short and direct answers."
-    },
 
-    "SMART": {
-        "model": "qwen/qwen3-32b",
-        "temperature": 0.4,
-        "max_tokens": 900,
-        "system_prompt": "Provide clear and helpful explanations."
-    },
 
-    "THINK HARD": {
-        "model": "deepseek-r1-distill-llama-70b",
-        "temperature": 0.2,
-        "max_tokens": 1500,
-        "system_prompt": "Think step by step and solve complex problems."
-    },
 
-    "CODER": {
-        "model": "llama-3.3-70b-versatile",
-        "temperature": 0.2,
-        "max_tokens": 1200,
-        "system_prompt": "You are an expert programmer. Write clean, correct and optimized code."
-    }
-}
 
-config = mode_configs[mode]
-
-# -------- MODEL SELECT --------
-model = st.sidebar.selectbox(
-    "Model",
-    [
-        "llama-3.1-8b-instant",
-        "llama-3.3-70b-versatile",
-        "qwen/qwen3-32b",
-        "deepseek-r1-distill-llama-70b"
-    ],
-    index=0 if config["model"] == "llama-3.1-8b-instant"
-    else 1 if config["model"] == "llama-3.3-70b-versatile"
-    else 2 if config["model"] == "qwen/qwen3-32b"
-    else 3
-)
-
-temperature = config["temperature"]
-
-max_tokens = st.sidebar.slider(
-    "Max Tokens",
-    100,
-    4096,
-    config["max_tokens"]
-)
 
 st.sidebar.markdown("---")
+
+# if "audio" not in st.session_state:
+#     st.session_state.audio=None
+#     st.session_state.audio_click=False
 
 # ------------------- SIDEBAR BUTTONS SIDE BY SIDE -------------------
 col1, col2 = st.sidebar.columns([1, 1])  # two equal-width columns
@@ -413,13 +451,38 @@ with col1:
         st.rerun()
 
 # -------- Voice Input Button --------
+# with col2:
+#     if st.button("🎤Voice I/O") or st.session_state.audio_click:
+#         st.session_state.audio_click=True
+#         if not st.session_state.audio:
+#             st.session_state.audio = mic_recorder(
+#                     start_prompt="🎤 Start recording",
+#                     stop_prompt="⏹ Stop recording",
+#                     just_once=True
+#                 )
+#         if st.session_state.audio:
+#             result = voice_input_to_prompt(st.session_state.audio)
+#             st.session_state.audio=None
+#             st.session_state.audio_click=False
+#             if result:
+#                 st.session_state.voice = True
+#                 st.rerun()  # auto-run AI response
+
+
 with col2:
-    if st.button("🎤Voice I/O"):
-        result = voice_input_to_prompt()
+
+    audio = mic_recorder(
+        start_prompt="🎤 Start recording",
+        stop_prompt="⏹ Stop recording",
+        just_once=True
+    )
+
+    if audio:
+        # st.write(audio)
+        result = voice_input_to_prompt(audio)
         if result:
             st.session_state.voice = True
-            st.rerun()  # auto-run AI response
-
+            st.rerun()
 
 # ---------------- TITLE ----------------
 st.title("🤖 AI Chat Assistant")
@@ -561,28 +624,58 @@ if prompt:
 # ---------------- BUTTONS SIDE BY SIDE ----------------
 if st.session_state.last_prompt and st.session_state.last_response:
 
-    c1, c2,c3,c4,c5 = st.columns([4, 4,1.3,1.3,1.5])  # two equal-width columns
+    c1, c2, c3, c4, c5 = st.columns([4, 4, 1.3, 1.3, 1.5])
 
     # -------- Speak Button --------
     with c3:
         if st.button("🔊 Speak"):
-            import pyttsx3
-            engine = pyttsx3.init()
-            engine.setProperty("rate", st.session_state.voice_settings["rate"])
-            engine.setProperty("volume", st.session_state.voice_settings["volume"])
+            
+            # Voice mapping
+            voice_map = {
+                "Default": "en-US-AriaNeural",
+                "English Male": "en-US-GuyNeural",
+                "English Female": "en-US-AriaNeural",
+                
+                "Hindi Female": "hi-IN-SwaraNeural"
+            }
+            selected_voice = voice_map.get(st.session_state.voice_settings["voice"], "en-US-AriaNeural")
 
-            # Set voice based on choice
-            voices = engine.getProperty("voices")
-            if st.session_state.voice_settings["voice"] == "Male":
-                engine.setProperty("voice", voices[1].id)
-            elif st.session_state.voice_settings["voice"] == "Female":
-                if len(voices) > 1:
-                    engine.setProperty("voice", voices[0].id)
-            # else default system voice
+            # Rate conversion: edge-tts uses percentage (default 0%)
+            # Slider 80–300 -> rate -50% to +50% roughly
+            # Rate mapping to edge-tts percentage
+            rate_map = {
+                            "High": "+90%",    # fast speech
+                            "Normal": "+1%",   # normal speed (0% kabhi invalid hota hai)
+                            "Slow": "-30%"   # slower speech
+                        }
+            selected_rate_percent = rate_map.get(st.session_state.voice_settings["rate"], "1%")
 
-            engine.say(st.session_state.last_response)
-            engine.runAndWait()
-            del engine
+            tts_file = "temp_response.mp3"
+
+            async def generate_tts(text, filename, voice, rate):
+                communicate = edge_tts.Communicate(text, voice=voice, rate=rate)
+                await communicate.save(filename)
+
+            asyncio.run(generate_tts(
+                st.session_state.last_response,
+                tts_file,
+                selected_voice,
+                selected_rate_percent
+            ))
+
+            with open(tts_file, "rb") as f:
+                audio_bytes = f.read()
+
+            b64 = base64.b64encode(audio_bytes).decode()
+
+            st.markdown(
+                f"""
+                <audio autoplay controls>
+                    <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+                </audio>
+                """,
+                unsafe_allow_html=True
+            )
 
     # -------- Regenerate Button --------
     with c4:
