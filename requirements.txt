@@ -5,5 +5,5 @@ pandas>=2.0.0
 pyttsx3==2.90
 SpeechRecognition==3.8.1
 deep-translator==1.11.1
-PyAudio==0.2.13
-pypiwin32==223
+
+
