@@ -2,6 +2,7 @@ streamlit
 groq
 ddgs
 pandas
-pyttsx3
 SpeechRecognition
 deep-translator
+edge-tts
+streamlit-mic-recorder
