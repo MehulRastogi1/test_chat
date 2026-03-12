@@ -269,10 +269,7 @@ st.markdown(
         color: #0b79d0;
     }
 
-    /* Hide default Streamlit header for a cleaner look */
-    header[data-testid="stHeader"] {
-        display: none;
-    }
+    
 
     /* Slight spacing improvement for chat area */
     .css-1lcbmhc.e1fqkh3o3 {
@@ -679,4 +676,5 @@ if st.session_state.last_prompt and st.session_state.last_response:
 
             st.session_state.regen = True
             st.rerun()
+
 
